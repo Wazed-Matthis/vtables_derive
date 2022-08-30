@@ -4,6 +4,7 @@ extern crate proc_macro;
 use crate::proc_macro::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use std::ops::Deref;
+use proc_macro_error::abort;
 use syn::{
     self,
     parse::{Parse, ParseStream, Parser},
@@ -33,6 +34,9 @@ fn impl_vtable(ast: DeriveInput) -> TokenStream {
     gen.into()
 }
 
+use proc_macro_error::proc_macro_error;
+
+#[proc_macro_error]
 #[proc_macro_derive(VTable)]
 pub fn vtable_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
@@ -43,8 +47,7 @@ fn add_vtable_field(item_struct: &mut ItemStruct) {
     let fields = if let Named(fields) = &mut item_struct.fields {
         fields
     } else {
-        // todo: https://docs.rs/syn/1.0.11/syn/struct.Error.html
-        panic!("You can only decorate with #[has_vtable] a struct that has named fields.");
+        abort!("You can only decorate with #[has_vtable] a struct that has named fields.", item_struct.ident);
     };
 
     let struct_already_has_vtable_field = fields
@@ -56,9 +59,11 @@ fn add_vtable_field(item_struct: &mut ItemStruct) {
         return;
     }
 
-    let vtable_field = Field::parse_named
-        .parse2(quote! { pub vtable: *mut *mut usize })
-        .expect("internal macro error with ill-formatted vtable field");
+    let vtable_field = match Field::parse_named
+        .parse2(quote! { pub vtable: *mut *mut usize }){
+        Ok(field) => {field}
+        Err(_) => {panic!("Ill-formatted vtable field")}
+    };
 
     fields.named.insert(0, vtable_field);
 }
@@ -95,12 +100,12 @@ fn add_repr_c(item_struct: &mut ItemStruct) {
     }
 
     let mut repr_c = Attribute::parse_outer
-        .parse2(quote! { #[repr(C)] })
-        .expect("internal macro error with ill-formed #[repr(C)]");
+        .parse2(quote! { #[repr(C)] }).expect("Ill-formatted vtable field");
 
     item_struct.attrs.append(&mut repr_c);
 }
 
+#[proc_macro_error]
 #[proc_macro_attribute]
 pub fn has_vtable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut parsed: ItemStruct = parse_macro_input!(item as ItemStruct);
