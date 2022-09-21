@@ -25,10 +25,19 @@ fn impl_vtable(ast: DeriveInput) -> TokenStream {
     let gen = quote! {
         impl #impl_generics VTable for #ident #ty_generics #where_clause {
             unsafe fn get_virtual<__VirtualMethodType: Sized>(&self, index: usize) -> __VirtualMethodType {
-                let vtable = self.vtable as *const __VirtualMethodType;
-                vtable.add(index).read()
+                let vtable = self.vtable.read() as *const __VirtualMethodType;
+                vtable.add(index * std::mem::size_of::<std::ffi::c_void>()).read()
+            }
+
+             fn new(base: *mut *mut usize) -> Self {
+                Self {vtable: base}
+            }
+
+            fn as_ptr(&self) -> *const usize{
+                self.vtable as *const usize
             }
         }
+
     };
 
     gen.into()
@@ -60,9 +69,9 @@ fn add_vtable_field(item_struct: &mut ItemStruct) {
     }
 
     let vtable_field = match Field::parse_named
-        .parse2(quote! { pub vtable: *mut *mut usize }){
-        Ok(field) => {field}
-        Err(_) => {panic!("Ill-formatted vtable field")}
+        .parse2(quote! { pub vtable: *mut *mut usize }) {
+        Ok(field) => { field }
+        Err(_) => { panic!("Ill-formatted vtable field") }
     };
 
     fields.named.insert(0, vtable_field);
@@ -159,7 +168,7 @@ fn create_trait_object(item_trait: &mut ItemTrait) -> proc_macro2::TokenStream {
                 Lit::Int(int) => int.base10_parse::<usize>().ok(),
                 _ => None,
             }
-            .expect("Malformed vtable index");
+                .expect("Malformed vtable index");
             (sig, index)
         })
         .collect::<Vec<_>>();
@@ -277,7 +286,10 @@ pub fn virtual_index(attr: TokenStream, item: TokenStream) -> TokenStream {
     let gen = quote! {
         #(#attrs)*
         #vis #sig {
-            unsafe { self.get_virtual::<fn(*const Self, #(#argtys),*) #retty>(#index)(self as *const Self, #(#args),*) }
+            unsafe {
+                let vf = self.get_virtual::<extern "thiscall" fn(*const usize, #(#argtys),*) #retty>(#index);
+                vf(self.vtable as *const usize, #(#args),*)
+            }
         }
     };
 
