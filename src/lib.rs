@@ -36,6 +36,10 @@ fn impl_vtable(ast: DeriveInput) -> TokenStream {
             fn as_ptr(&self) -> *const usize{
                 self.vtable as *const usize
             }
+
+            fn get_value<T: Sized>(&self, offset: usize) -> T {
+                unsafe{((self.vtable as usize + offset) as *mut T).read()}
+            }
         }
 
     };
